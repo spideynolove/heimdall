@@ -1,0 +1,16 @@
+Just tell the Agent to read `.aim/memory.jsol` before continuing the      
+project, and after everything is done update that file, is that ok?       
+                                                                        
+writes .aim/memory.jsonl once as a persistent snapshot, and you'd re-run    
+/onboard (or manually update the file) when the architecture changes        
+significantly.                                                              
+
+The practical pattern:                                                      
+                                                                        
+1. At session start: agent reads .aim/memory.jsonl to restore context       
+2. After completing work: agent updates .aim/memory.jsonl with new          
+entities/relations                                                          
+                                                                        
+You can just tell the agent directly: "Read .aim/memory.jsonl before        
+starting, and update it when done." That's sufficient instruction — no      
+special tooling need

@@ -90,13 +90,62 @@ def _escape(text: str) -> str:
     return text.replace("'", "'\\''")
 
 
-def dispatch(task: str, profile: str = "", session: str = "ai-do") -> str:
+def dispatch(
+    task: str,
+    profile: str = "",
+    session: str = "ai-do",
+    model_alias: str = "",
+    proxy_url: str = "",
+) -> str:
     window = profile if profile else "default"
     if profile:
         load_profile(profile)
     ensure_pane(session, window)
-    cmd = f"claude -p '{_escape(task)}'"
+    env_prefix = ""
+    if proxy_url:
+        env_prefix = f"ANTHROPIC_BASE_URL={proxy_url} ANTHROPIC_API_KEY=cliproxyapi "
+    model_flag = f"--model {model_alias} " if model_alias else ""
+    cmd = f"{env_prefix}claude {model_flag}-p '{_escape(task)}'"
     return run_in_pane(session, window, cmd)
+
+
+def dispatch_many(
+    subtasks: list[tuple[str, str, str]],
+    session: str = "ai-do",
+    timeout: int = 300,
+) -> list[str]:
+    if not subtasks:
+        return []
+    windows = [f"split-{i}" for i in range(len(subtasks))]
+    for window in windows:
+        ensure_pane(session, window)
+    for window, (task, model_alias, proxy_url) in zip(windows, subtasks):
+        env_prefix = f"ANTHROPIC_BASE_URL={proxy_url} ANTHROPIC_API_KEY=cliproxyapi " if proxy_url else ""
+        model_flag = f"--model {model_alias} " if model_alias else ""
+        cmd = f"{env_prefix}claude {model_flag}-p '{_escape(task)}'"
+        tmux_send_keys(session, window, f"{cmd}; echo '{SENTINEL}'")
+    results: dict[str, str] = {}
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for window in windows:
+            if window in results:
+                continue
+            output = tmux_capture_pane(session, window)
+            if SENTINEL in output:
+                lines = output.split("\n")
+                collected = []
+                for line in lines:
+                    if SENTINEL in line:
+                        break
+                    collected.append(line)
+                results[window] = "\n".join(collected)
+        if len(results) == len(windows):
+            break
+        time.sleep(1)
+    if len(results) < len(windows):
+        missing = [w for w in windows if w not in results]
+        raise TimeoutError(f"subtasks did not complete within {timeout}s: {missing}")
+    return [results[w] for w in windows]
 
 
 def main() -> None:

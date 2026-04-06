@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import patch, call
 from ai_dispatch import (
     tmux_has_session,
@@ -238,3 +239,59 @@ def test_cli_no_args_exits_nonzero():
             assert e.code != 0
     finally:
         _sys.argv = old_argv
+
+
+from ai_dispatch import dispatch_many
+
+
+def test_dispatch_many_sends_all_commands():
+    sent = []
+    def fake_run(cmd, **kw):
+        if "send-keys" in cmd:
+            sent.append(cmd)
+        return _run(0, stdout="line1\n<<<DONE>>>\n")
+    with patch("subprocess.run", side_effect=fake_run):
+        with patch("time.sleep"):
+            dispatch_many([("task A", "", ""), ("task B", "gpt-4o", "http://localhost:8317")], session="ai-do")
+    assert len(sent) == 2
+
+
+def test_dispatch_many_returns_results_in_order():
+    outputs = {"split-0": "result A\n<<<DONE>>>", "split-1": "result B\n<<<DONE>>>"}
+    def fake_run(cmd, **kw):
+        if "capture-pane" in cmd:
+            window = cmd[3].split(":")[1]
+            return _run(0, stdout=outputs.get(window, ""))
+        return _run(0)
+    with patch("subprocess.run", side_effect=fake_run):
+        with patch("time.sleep"):
+            results = dispatch_many([("task A", "", ""), ("task B", "", "")], session="ai-do")
+    assert results[0].strip() == "result A"
+    assert results[1].strip() == "result B"
+
+
+def test_dispatch_many_sets_proxy_env_in_command():
+    cmds = []
+    def fake_run(cmd, **kw):
+        if "send-keys" in cmd:
+            cmds.append(cmd[4])  # cmd[4] is the text; cmd[3] is "-t target"
+        return _run(0, stdout="<<<DONE>>>")
+    with patch("subprocess.run", side_effect=fake_run):
+        with patch("time.sleep"):
+            dispatch_many([("do it", "gpt-4o", "http://localhost:8317")], session="ai-do")
+    assert any("ANTHROPIC_BASE_URL" in c for c in cmds)
+    assert any("gpt-4o" in c for c in cmds)
+
+
+def test_dispatch_many_raises_on_timeout():
+    def fake_run(cmd, **kw):
+        return _run(0, stdout="still running")
+    with patch("subprocess.run", side_effect=fake_run):
+        with patch("time.sleep"):
+            with patch("time.monotonic", side_effect=[0.0, 0.0, 99.0, 99.0]):
+                with pytest.raises(TimeoutError):
+                    dispatch_many([("task", "", "")], session="ai-do", timeout=1)
+
+
+def test_dispatch_many_empty_list_returns_empty():
+    assert dispatch_many([], session="ai-do") == []

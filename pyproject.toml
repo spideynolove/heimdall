@@ -8,7 +8,13 @@ version = "0.1.0"
 requires-python = ">=3.8"
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov"]
+dev = ["pytest", "pytest-cov", "pyyaml"]
+
+[project.scripts]
+ai-profile = "ai_profile:main"
+ai-dispatch = "ai_dispatch:main"
+ai-do = "ai_do:main"
+ai-status = "ai_status:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
